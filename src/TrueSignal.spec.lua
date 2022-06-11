@@ -2,11 +2,21 @@ local RunService = game:GetService("RunService")
 
 local Promise = require(script.Parent.Parent.Promise)
 
-local TrueSignal = require(script.Parent.TrueSignal)
-local Connection = require(script.Parent.Signal.Connection)
+local TrueSignal = require(script.Parent)
+local Connection = require(script.Parent.Connection)
+
+--[[
+    [queueing, deferred]
+
+    false false
+    false true
+    true false
+    true true
+
+]]--
 
 return function()
-    describe("Signal.new", function()
+    describe("TrueSignal.new", function()
         it("should create a new signal object", function()
             local signal = TrueSignal.new()
 
@@ -15,47 +25,11 @@ return function()
 
             signal:destroy()
         end)
-
-        it("should work if queueing is false and deferred is false", function()
-            local signal = TrueSignal.new(false, false)
-
-            expect(signal).to.be.a("table")
-            expect(getmetatable(signal)).to.equal(TrueSignal)
-
-            signal:destroy()
-        end)
-
-        it("should work if queueing is true and deferred is false", function()
-            local signal = TrueSignal.new(true, false)
-
-            expect(signal).to.be.a("table")
-            expect(getmetatable(signal)).to.equal(TrueSignal)
-
-            signal:destroy()
-        end)
-
-        it("should work if queueing is true and deferred is true", function()
-            local signal = TrueSignal.new(true, true)
-
-            expect(signal).to.be.a("table")
-            expect(getmetatable(signal)).to.equal(TrueSignal)
-
-            signal:destroy()
-        end)
-
-        it("should work if queueing is false and deferred is true", function()
-            local signal = TrueSignal.new(false, true)
-
-            expect(signal).to.be.a("table")
-            expect(getmetatable(signal)).to.equal(TrueSignal)
-
-            signal:destroy()
-        end)
     end)
     
-    describe("Signal:fire", function()
-        it("should fire an activating connection properly if args are queued and deferred", function()
-            local signal = TrueSignal.new(true, true)
+    describe("TrueSignal:fire", function()
+        it("should fire an activating connection properly if args are queued and not deferred", function()
+            local signal = TrueSignal.new(true, false)
 
             local done = {}
 
@@ -73,8 +47,8 @@ return function()
             signal:destroy()
         end)
 
-        it("should fire an activating connection properly if args are queued and not deferred", function()
-            local signal = TrueSignal.new(true, false)
+        it("should fire an activating connection properly if args are queued and deferred", function()
+            local signal = TrueSignal.new(true, true)
 
             local done = {}
 
@@ -84,6 +58,12 @@ return function()
             local connection = signal:connect(function(index)
                 done[index] = true
             end)
+
+            expect(done[1]).to.never.be.ok()
+            expect(done[2]).to.never.be.ok()
+
+            task.defer(task.spawn, coroutine.running())
+            coroutine.yield()
 
             expect(done[1]).to.be.ok()
             expect(done[2]).to.be.ok()
@@ -119,6 +99,50 @@ return function()
             expect(done1[3]).to.be.ok()
             expect(done1[4]).to.be.ok()
 
+            expect(done2[3]).to.be.ok()
+            expect(done2[4]).to.be.ok()
+
+            connection1:destroy()
+            connection2:destroy()
+            signal:destroy()
+        end)
+
+        it("should fire connections properly if not queueing and deferred", function()
+            local signal = TrueSignal.new(false, false)
+            local done1, done2 = {}, {}
+
+            signal:fire(1)
+            signal:fire(2)
+
+            local connection1 = signal:connect(function(index)
+                done1[index] = true
+            end)
+
+            expect(done1[1]).to.never.be.ok()
+            expect(done1[2]).to.never.be.ok()
+
+            local connection2 = signal:connect(function(index)
+                done2[index] = true
+            end)
+
+            expect(done2[1]).to.never.be.ok()
+            expect(done2[2]).to.never.be.ok()
+
+            signal:fire(3)
+            signal:fire(4)
+
+            expect(done1[3]).to.never.be.ok()
+            expect(done1[4]).to.never.be.ok()
+            
+            expect(done2[3]).to.never.be.ok()
+            expect(done2[4]).to.never.be.ok()
+
+            task.defer(task.spawn, coroutine.running())
+            coroutine.yield()
+            
+            expect(done1[3]).to.be.ok()
+            expect(done1[4]).to.be.ok()
+            
             expect(done2[3]).to.be.ok()
             expect(done2[4]).to.be.ok()
 
@@ -192,12 +216,7 @@ return function()
             expect(done2[3]).to.never.be.ok()
             expect(done2[4]).to.never.be.ok()
 
-            local thread = coroutine.running()
-
-            task.defer(function()
-                task.spawn(thread)
-            end)
-
+            task.defer(task.spawn, coroutine.running())
             coroutine.yield()
 
             expect(done1[3]).to.be.ok()
@@ -211,77 +230,71 @@ return function()
             signal:destroy()
         end)
 
-        it("should fire connections properly if not queueing and deferred", function()
-            local signal = TrueSignal.new(false, false)
-            local done1, done2 = {}, {}
+        
 
-            signal:fire(1)
-            signal:fire(2)
+        it("should fire disconnected connections that were disconnected during :fire if args are not queued and signal is not deferred", function()
+            local signal = TrueSignal.new(false, false)
+            local done1 = {}
+            local done2 = {}
 
             local connection1 = signal:connect(function(index)
                 done1[index] = true
             end)
 
-            expect(done1[1]).to.never.be.ok()
-            expect(done1[2]).to.never.be.ok()
-
             local connection2 = signal:connect(function(index)
                 done2[index] = true
+                connection1:disconnect()
             end)
 
-            expect(done2[1]).to.never.be.ok()
-            expect(done2[2]).to.never.be.ok()
+            signal:fire(1)
+            signal:fire(2)
 
-            signal:fire(3)
-            signal:fire(4)
-
-            expect(done1[3]).to.never.be.ok()
-            expect(done1[4]).to.never.be.ok()
-            
-            expect(done2[3]).to.never.be.ok()
-            expect(done2[4]).to.never.be.ok()
-
-            local thread = coroutine.running()
-
-            task.defer(function()
-                task.spawn(thread)
-            end)
-
-            coroutine.yield()
-            
-            expect(done1[3]).to.be.ok()
-            expect(done1[4]).to.be.ok()
-            
-            expect(done2[3]).to.be.ok()
-            expect(done2[4]).to.be.ok()
+            expect(done1[1]).to.be.ok()
+            expect(done2[1]).to.be.ok()
+            expect(done1[2]).to.never.be.ok()
+            expect(done2[2]).to.be.ok()
 
             connection1:destroy()
             connection2:destroy()
             signal:destroy()
         end)
 
-        it("should fire disconnected connections that were disconnected during :fire if queueing and not deferred", function()
+        it("should () fire disconnected connections that were disconnected during :fire if args are queued and signal is not deferred", function()
             local signal = TrueSignal.new(true, false)
-            local done0, done1 = false, false
+            local done1 = {}
+            local done2 = {}
 
-            local connection = signal:connect(function(bool)
-                done0 = bool
+            local connection1 = signal:connect(function(index)
+                done1[index] = true
             end)
 
-            signal:connect(function(bool)
-                done1 = bool
-                connection:disconnect()
+            local connection2 = signal:connect(function(index)
+                done2[index] = true
+                connection1:disconnect()
             end)
 
-            signal:fire(true)
+            signal:fire(1)
+            signal:fire(2)
 
-            expect(done0).to.equal(true)
-            expect(done1).to.equal(true)
+            expect(done1[1]).to.be.ok()
+            expect(done2[1]).to.be.ok()
+            expect(done1[2]).to.never.be.ok()
+            expect(done2[2]).to.be.ok()
 
+            connection1:destroy()
+            connection2:destroy()
             signal:destroy()
         end)
+        
+        it("should () fire disconnected connections that were disconnected during :fire if args are queued and signal is deferred", function()
 
-        it("should not fire disconnected connections that were disconnected outside :fire if not deferred", function()
+        end)
+
+        it("should () fire disconnected connections that were disconnected during :fire if args are not queued and signal is deferred", function()
+
+        end)
+
+        it("should not fire disconnected connections that were disconnected outside :fire if signal is not deferred", function()
             local signal = Signal.new()
             local done0, done1 = false, false
 
@@ -411,20 +424,23 @@ return function()
         end)
     end)
 
-    describe("Signal:connect", function()
+    describe("TrueSignal:connect", function()
         it("should return a connection that is connected initially", function()
             local signal = TrueSignal.new()
             local connection = signal:connect(function() end)
 
-            expect(connection.connected).to.equal(true)
+            expect(connection).to.be.a("table")
+            expect(getmetatable(connection)).to.equal(Connection)
 
+            expect(connection.connected).to.equal(true)
+            
             signal:destroy()
         end)
 
-        it("should throw within connection handler if connection is disconnected from inside handler if args are queued", function()
+        it("should throw handler if connection is disconnected from inside handler if args are queued and signal is not deferred", function()
             local signal = TrueSignal.new(true)
 
-            local fails = 0
+            local passes, fails = 0, 0
             local connection
 
             signal:fire()
@@ -436,21 +452,53 @@ return function()
                     connection:disconnect()
                 end)
 
-                if not success then
+                if success then
+                    passes += 1
+                else
                     fails += 1
                 end
             end)
 
+            expect(passes).to.equal(0)
             expect(fails).to.equal(3)
 
             connection:destroy()
             signal:destroy()
         end)
 
-        it("should not throw if connection is disconnected from inside handler if args not queued", function()
+        it("should not throw handler if connection is disconnected from inside handler if args are queued and signal is deferred", function()
+            local signal = TrueSignal.new(true, true)
+
+            local passes, fails = 0, 0
+            local connection
+
+            signal:fire()
+            signal:fire()
+            signal:fire()
+
+            connection = signal:connect(function()
+                local success = pcall(function()
+                    connection:disconnect()
+                end)
+
+                if success then
+                    passes += 1
+                else
+                    fails += 1
+                end
+            end)
+
+            expect(passes).to.equal(0)
+            expect(fails).to.equal(3)
+
+            connection:destroy()
+            signal:destroy()
+        end)
+
+        it("should not throw if connection is disconnected from inside handler if args not queued and signal is not deferred", function()
             local signal = TrueSignal.new(true)
 
-            local passes = 0
+            local passes, fails = 0, 0
             local connection
 
             connection = signal:connect(function()
@@ -460,22 +508,29 @@ return function()
 
                 if success then
                     passes += 1
+                else
+                    fails += 1
                 end
             end)
 
             expect(passes).to.equal(0)
+            expect(fails).to.equal(0)
 
             signal:fire()
 
             expect(passes).to.equal(1)
+            expect(fails).to.equal(0)
 
             connection:destroy()
             signal:destroy()
         end)
 
-        it("should call the handler with all queued args if args are queued", function()
+        it("should not throw if connection is disconnected from inside handler if args are not queued and signal is deferred", function()
+
+        end)
+
+        it("should call the handler with queued args if args are queued", function()
             local signal = TrueSignal.new(true)
-            signal:enableQueueing()
 
             local output = {}
 
@@ -495,9 +550,12 @@ return function()
         end)
     end)
 
+    describe("TrueSignal:flush", function()
+
+    end)
     
-    describe("Signal:wait", function()
-        it("should yield until signal is fired and return passed args from the fire call", function()
+    describe("TrueSignal:wait", function()
+        it("should yield until signal is fired and return passed args from the fire call if queueing=false and deferred=false", function()
             local signal = TrueSignal.new()
             local message1, message2
 
@@ -516,28 +574,77 @@ return function()
             signal:destroy()
         end)
 
-        it("it should return args popped from the queue if args are queued", function()
+        it("should yield until end of frame when signal is fired and return passed args from the fire call if queueing=false and deferred=true", function()
+            local signal = TrueSignal.new(false, true)
+            local message1, message2
+
+            task.spawn(function()
+                message1, message2 = signal:wait()
+            end)
+
+            expect(message1).to.never.be.ok()
+            expect(message2).to.never.be.ok()
+
+            signal:fire("two", "messages")
+
+            expect(message1).to.never.be.ok()
+            expect(message2).to.never.be.ok()
+
+            task.defer(task.spawn, coroutine.running())
+            coroutine.yield()
+
+            expect(message1).to.equal("two")
+            expect(message2).to.equal("messages")
+
+            signal:destroy()
+        end)
+
+        it("it should return args popped from the queue immediately queueing=true and deferred=false", function()
             local signal = TrueSignal.new(true)
 
             signal:fire(1)
             signal:fire(2)
-            signal:fire(3)
 
             local popped1 = signal:wait()
             local popped2 = signal:wait()
-            local popped3 = signal:wait()
 
             expect(popped1).to.equal(1)
             expect(popped2).to.equal(2)
-            expect(popped3).to.equal(3)
+
+            signal:destroy()
+        end)
+
+        it("it should return args popped from the queue at the end of the frame if queueing=true and deferred=true", function()
+            local signal = TrueSignal.new(true, true)
+            local popped1, popped2
+
+            signal:fire(1)
+            signal:fire(2)
+
+            task.spawn(function()
+                popped1 = signal:wait()
+            end)
+            
+            task.spawn(function()
+                popped2 = signal:wait()
+            end)
+
+            expect(popped1).to.never.be.ok()
+            expect(popped2).to.never.be.ok()
+
+            task.defer(task.spawn, coroutine.running())
+            coroutine.yield()
+
+            expect(popped1).to.equal(1)
+            expect(popped2).to.equal(2)
 
             signal:destroy()
         end)
     end)
     
-    describe("Signal:promise", function()
-        it("should return a promise that resolves with the args passed in the next fire call if args aren't queued", function()
-            local signal = TrueSignal.new(false)
+    describe("TrueSignal:promise", function()
+        it("should return a promise that resolves immediately with the args passed in the next fire call if queueing=false and deferred=false", function()
+            local signal = TrueSignal.new(false, false)
             local promise = signal:promise()
 
             expect(promise:getStatus()).to.equal(Promise.Status.Started)
@@ -550,14 +657,56 @@ return function()
             signal:destroy()
         end)
 
-        it("should return a promise that resolves with args popped from the queue if args are queued", function()
-            local signal = TrueSignal.new(true)
+        it("should return a promise that resolves at the end of the frame with the args passed in the next fire call if queueing=false and deferred=true", function()
+            local signal = TrueSignal.new(false, true)
+            local promise = signal:promise()
 
-            signal:fire(0)
+            expect(promise:getStatus()).to.equal(Promise.Status.Started)
+
+            signal:fire("message")
+
+            expect(promise:getStatus()).to.equal(Promise.Status.Started)
+
+            task.defer(task.spawn, coroutine.running())
+            coroutine.yield()
+
+            expect(promise:expect()).to.equal("message")
+
+            signal:destroy()
+        end)
+
+        it("should return a promise that resolves immediately with args popped from the queue if queueing=true and deferred=false", function()
+            local signal = TrueSignal.new(true, false)
+
             signal:fire(1)
+            signal:fire(2)
             
-            expect(signal:promise():expect()).to.equal(0)
             expect(signal:promise():expect()).to.equal(1)
+            expect(signal:promise():expect()).to.equal(2)
+
+            signal:destroy()
+        end)
+
+        it("should return a promise that resolves at the end of the frame with args popped from the queue if queueing=true and deferred=true", function()
+            local signal = TrueSignal.new(true, true)
+
+            signal:fire(1)
+            signal:fire(2)
+            
+            local promise1 = signal:promise()
+            local promise2 = signal:promise()
+            
+            expect(promise1:getStatus()).to.equal(Promise.Status.Started)
+            expect(promise2:getStatus()).to.equal(Promise.Status.Started)
+
+            task.defer(task.spawn, coroutine.running())
+            coroutine.yield()
+
+            expect(promise1:getStatus()).to.equal(Promise.Status.Resolved)
+            expect(promise2:getStatus()).to.equal(Promise.Status.Resolved)
+
+            expect(promise1:expect()).to.equal(1)
+            expect(promise2:expect()).to.equal(2)
 
             signal:destroy()
         end)
@@ -565,7 +714,7 @@ return function()
     
 
 
-    describe("Signal:destroy", function()
+    describe("TrueSignal:destroy", function()
         it("should set destroyed field to true", function()
             local signal = TrueSignal.new()
 
