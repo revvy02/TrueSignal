@@ -50,9 +50,7 @@ function Connection:disconnect()
     end
 
     if node == self then
-        if not signal.firing then
-            signal._head = self._next
-        end
+        signal._head = self._next
     else
         while node and node._next ~= self do
             node = node._next

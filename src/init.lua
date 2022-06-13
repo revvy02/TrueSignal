@@ -27,26 +27,30 @@ TrueSignal.__index = TrueSignal
 --[=[
     Constructs a new TrueSignal object.
 
-    @param queueing bool
     @param deferred bool
+    @param queueing bool
 
     @return TrueSignal
 ]=]
-function TrueSignal.new(queueing, deferred)
+function TrueSignal.new(deferred, queueing)
     local self = setmetatable({}, TrueSignal)
 
     --[=[
         Tells whether or not the TrueSignal is currently firing arguments or not
-        (this should only be true if the environment it is being read from is within a handler call)
+        (this can only be true if the environment it is being read from is within a handler call)
+
+        @prop firing bool
+        @within TrueSignal
+        @readonly
     ]=]
     self.firing = false
 
-    if queueing then
-        self._queue = {}
-    end
-
     if deferred then
         self._deferred = true
+    end
+
+    if queueing then
+        self._queue = {}
     end
 
     return self
@@ -76,6 +80,8 @@ function TrueSignal:fire(...)
                 if not newHead then
                     newHead = node
                     newTail = node
+
+                    newTail._next = nil
                 else
                     newTail._next = node
                     newTail = node
@@ -100,14 +106,14 @@ function TrueSignal:connect(fn)
 
     connection._next = head
     self._head = connection
-
+    
     if not head and self._queue then
         if self._deferred then
-            while self._queue and self._queue[1] and self._head do
+            while self._queue[1] and self._head do
                 task.defer(fn, table.unpack(table.remove(self._queue, 1)))
             end
         else
-            while self._queue and self._queue[1] and self._head do
+            while self._queue[1] and self._head do
                 task.spawn(fn, table.unpack(table.remove(self._queue, 1)))
             end
         end
